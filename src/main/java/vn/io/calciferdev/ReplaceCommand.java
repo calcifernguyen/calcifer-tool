@@ -10,129 +10,189 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 @Slf4j
-@Command(name = "replace", description = "Replace text patterns in files within specified directories")
+@Data
+@Command(name = "replace", description = "Replace text in files and optionally folder names")
 public class ReplaceCommand implements Callable<Integer> {
 
-    @Option(names = {"-f", "--file"}, description = "File containing list of folder paths")
-    private File folderListFile;
-
-    @Option(names = {"-a", "--all"}, description = "Replace in folder names as well")
-    private boolean replaceFolderNames;
-
-    @Option(names = {"--ignore"}, description = "Skip files and folders matching this pattern")
-    private String ignorePattern;
-
-    @Parameters(index = "0", description = "Old pattern to replace")
+    @Parameters(index = "0", description = "Pattern to replace")
     private String oldPattern;
 
-    @Parameters(index = "1", description = "New pattern to replace with")
+    @Parameters(index = "1", description = "Replacement text")
     private String newPattern;
 
-    @Parameters(index = "2..*", description = "Folder paths")
-    private List<String> folderPaths;
+    @Option(names = {"-f", "--folder-list"}, description = "File containing list of folders")
+    private File folderListFile;
 
-    private List<Path> getTargetFolders() throws IOException {
-        List<Path> targetFolders = new ArrayList<>();
-        
-        if (folderListFile != null) {
-            try (BufferedReader reader = new BufferedReader(new FileReader(folderListFile))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    Path path = Path.of(line.trim());
-                    if (Files.exists(path) && Files.isDirectory(path)) {
-                        targetFolders.add(path);
-                    }
-                }
-            }
-        } else {
-            for (String folderPath : folderPaths) {
-                Path path = Path.of(folderPath);
-                if (Files.exists(path) && Files.isDirectory(path)) {
-                    targetFolders.add(path);
-                }
-            }
-        }
-        return targetFolders;
-    }
+    @Option(names = {"-i", "--input"}, description = "Input folder paths", arity = "0..*")
+    private List<String> inputPaths;
 
-    private boolean shouldIgnore(Path path) {
-        if (ignorePattern == null) {
-            return false;
-        }
-        return path.toString().matches(ignorePattern);
-    }
+    @Option(names = {"-n", "--folder-names"}, description = "Replace folder names as well")
+    private boolean replaceFolderNames;
 
-    private void processFile(Path file, Pattern pattern) {
-        if (shouldIgnore(file)) {
-            log.debug("Skipping ignored file: {}", file);
-            return;
-        }
+    @Option(names = {"--ignore"}, description = "Pattern to ignore folders")
+    private String ignorePattern;
 
-        try {
-            String content = Files.readString(file);
-            String newContent = pattern.matcher(content).replaceAll(newPattern);
-            if (!content.equals(newContent)) {
-                Files.writeString(file, newContent);
-                log.info("Updated: {}", file);
-            }
-        } catch (IOException e) {
-            log.error("Error processing file {}: {}", file, e.getMessage());
-        }
-    }
+    @Option(names = {"-v", "--verbose"}, description = "Enable verbose output")
+    private boolean verbose;
 
-    private void renameFolder(Path folder, Pattern pattern) {
-        if (shouldIgnore(folder)) {
-            log.debug("Skipping ignored folder: {}", folder);
-            return;
-        }
-
-        String folderName = folder.getFileName().toString();
-        String newFolderName = pattern.matcher(folderName).replaceAll(newPattern);
-        if (!folderName.equals(newFolderName)) {
-            try {
-                Path newPath = folder.getParent().resolve(newFolderName);
-                Files.move(folder, newPath);
-                log.info("Renamed folder: {} -> {}", folder, newPath);
-            } catch (IOException e) {
-                log.error("Error renaming folder {}: {}", folder, e.getMessage());
-            }
-        }
+    private static class ProcessResult {
+        int filesProcessed;
+        int filesModified;
+        int foldersRenamed;
     }
 
     @Override
     public Integer call() {
         try {
-            List<Path> targetFolders = getTargetFolders();
+            List<String> targetFolders = getTargetFolders();
+            if (targetFolders.isEmpty()) {
+                log.error("No folders specified. Use either -f or -i option.");
+                return 1;
+            }
+
             Pattern pattern = Pattern.compile(oldPattern);
-            
-            for (Path folder : targetFolders) {
-                if (shouldIgnore(folder)) {
-                    log.debug("Skipping ignored folder: {}", folder);
-                    continue;
-                }
+            Pattern ignorePatternCompiled = this.ignorePattern != null ? Pattern.compile(this.ignorePattern) : null;
 
-                log.info("Processing files in: {}", folder);
-                Files.walk(folder)
-                    .filter(Files::isRegularFile)
-                    .forEach(file -> processFile(file, pattern));
+            ProcessResult result = new ProcessResult();
+            processAllFolders(targetFolders, pattern, ignorePatternCompiled, result);
+            return logFinalResult(result);
+        } catch (Exception e) {
+            log.error("Error during replacement: {}", e.getMessage());
+            return 1;
+        }
+    }
 
-                if (replaceFolderNames) {
-                    Files.walk(folder)
-                        .filter(Files::isDirectory)
-                        .forEach(dir -> renameFolder(dir, pattern));
+    private List<String> getTargetFolders() throws IOException {
+        List<String> folders = new ArrayList<>();
+        if (folderListFile != null && inputPaths != null) {
+            throw new IllegalArgumentException("Cannot use both -f and -i options simultaneously");
+        }
+        if (folderListFile != null) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(folderListFile))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    folders.add(line.trim());
                 }
             }
+        } else if (inputPaths != null) {
+            folders.addAll(inputPaths);
+        } else {
+            throw new IllegalArgumentException("Either -f or -i option must be specified");
+        }
+        return folders;
+    }
+
+    private boolean shouldIgnore(String folder, Pattern ignorePattern) {
+        if (ignorePattern == null) {
+            return false;
+        }
+        return ignorePattern.matcher(folder).find();
+    }
+
+    private void processAllFolders(List<String> folders, Pattern pattern, Pattern ignorePattern, ProcessResult result) {
+        for (String folder : folders) {
+            if (verbose) {
+                log.info("Processing folder: {}", folder);
+            }
+            if (shouldIgnore(folder, ignorePattern)) {
+                if (verbose) {
+                    log.info("Skipping ignored folder: {}", folder);
+                }
+                continue;
+            }
+            try {
+                processFolder(Path.of(folder), pattern);
+                result.filesProcessed++;
+                if (verbose) {
+                    log.info("Successfully processed folder: {}", folder);
+                }
+            } catch (Exception e) {
+                if (verbose) {
+                    log.error("Failed to process folder {}: {}", folder, e.getMessage());
+                }
+            }
+        }
+    }
+
+    private int logFinalResult(ProcessResult result) {
+        if (result.filesProcessed > 0) {
+            log.info("Text replacement completed successfully in {} folders", result.filesProcessed);
             return 0;
-        } catch (IOException e) {
-            log.error("Error replacing patterns: {}", e.getMessage());
+        } else {
+            log.error("Text replacement failed in all folders");
             return 1;
+        }
+    }
+
+    private void processFolder(Path folder, Pattern pattern) throws IOException {
+        ProcessResult result = new ProcessResult();
+        processFiles(folder, pattern, result);
+        if (replaceFolderNames) {
+            processFolders(folder, pattern, result);
+        }
+        logFolderResult(folder, result);
+    }
+
+    private void processFiles(Path folder, Pattern pattern, ProcessResult result) throws IOException {
+        try (Stream<Path> stream = Files.walk(folder)) {
+            stream.filter(Files::isRegularFile)
+                .forEach(file -> {
+                    try {
+                        if (verbose) {
+                            log.info("Processing file: {}", file);
+                        }
+                        String content = Files.readString(file);
+                        String newContent = pattern.matcher(content).replaceAll(newPattern);
+                        if (!content.equals(newContent)) {
+                            Files.writeString(file, newContent);
+                            result.filesModified++;
+                            if (verbose) {
+                                log.info("Replaced content in file: {}", file);
+                            }
+                        }
+                        result.filesProcessed++;
+                    } catch (IOException e) {
+                        log.error("Error processing file {}: {}", file, e.getMessage());
+                    }
+                });
+        }
+    }
+
+    private void processFolders(Path folder, Pattern pattern, ProcessResult result) throws IOException {
+        try (Stream<Path> stream = Files.walk(folder)) {
+            stream.filter(Files::isDirectory)
+                .forEach(dir -> {
+                    try {
+                        String dirName = dir.getFileName().toString();
+                        String newDirName = pattern.matcher(dirName).replaceAll(newPattern);
+                        if (!dirName.equals(newDirName)) {
+                            Path newPath = dir.resolveSibling(newDirName);
+                            Files.move(dir, newPath);
+                            result.foldersRenamed++;
+                            if (verbose) {
+                                log.info("Renamed folder from {} to {}", dir, newPath);
+                            }
+                        }
+                    } catch (IOException e) {
+                        log.error("Error renaming folder {}: {}", dir, e.getMessage());
+                    }
+                });
+        }
+    }
+
+    private void logFolderResult(Path folder, ProcessResult result) {
+        if (verbose) {
+            log.info("Folder {} processed: {} files processed, {} files modified, {} folders renamed", 
+                folder, result.filesProcessed, result.filesModified, result.foldersRenamed);
         }
     }
 } 

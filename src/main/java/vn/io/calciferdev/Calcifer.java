@@ -7,7 +7,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Slf4j
-@Command(name = "calcifer", mixinStandardHelpOptions = true, version = "calcifer 1.0",
+@Command(name = "calcifer", mixinStandardHelpOptions = true, version = "0.0.2",
         description = "A utility tool for running commands, replacing text, and copying files across multiple directories.")
 public class Calcifer implements Callable<Integer> {
 
@@ -22,6 +22,7 @@ public class Calcifer implements Callable<Integer> {
                 .addSubcommand("run", new RunCommand())
                 .addSubcommand("replace", new ReplaceCommand())
                 .addSubcommand("copy", new CopyCommand())
+                .addSubcommand("apply", new ApplyCommand())
                 .execute(args);
         System.exit(exitCode);
     }

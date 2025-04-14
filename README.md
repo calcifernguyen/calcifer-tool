@@ -1,80 +1,174 @@
 # Calcifer Tool
 
-A command-line utility tool for running commands, replacing text, and copying files across multiple directories.
+A command-line tool for automating file operations and text replacements.
 
-## Requirements
+## Features
 
-- Java 21
-- Maven
+- **Run Command**: Execute shell commands in specified directories
+- **Replace Command**: Replace text in files and optionally folder names
+- **Copy Command**: Copy files and folders using native OS commands
+- **Apply Command**: Execute a series of commands from a YAML configuration file
+- **Verbose Mode**: Detailed logging for debugging and monitoring
 
-## Building
-
-To build the project, run:
+## Installation
 
 ```bash
-mvn clean package
-```
+# Clone the repository
+git clone https://github.com/yourusername/calcifer-tool.git
+cd calcifer-tool
 
-This will create a fat JAR file in the `target` directory named `calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar`.
+# Build the project
+mvn clean package
+
+# Run the tool
+java -jar target/calcifer-tool-1.0-SNAPSHOT.jar
+```
 
 ## Usage
 
 ### Run Command
 
-Run shell commands in specified directories:
+Execute shell commands in specified directories:
 
 ```bash
-# Run commands in a single directory
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar run <folder_path> <command1> <command2> ...
+# Basic usage
+calcifer run "command" -i path1 path2
 
-# Run commands in multiple directories from a file
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar run -f <folder_paths_list-file> <command1> <command2> ...
+# With verbose output
+calcifer run "command" -i path1 path2 -v
+
+# Using a folder list file
+calcifer run "command" -f folders.txt
 ```
 
 ### Replace Command
 
-Replace text patterns in files within specified directories:
+Replace text in files and optionally folder names:
 
 ```bash
-# Replace in a single directory
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar replace <folder_path> <old_pattern> <new_pattern>
+# Basic usage
+calcifer replace "oldPattern" "newPattern" -i path1 path2
 
-# Replace in multiple directories from a file
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar replace -f <folder_paths_list-file> <old_pattern> <new_pattern>
+# With verbose output
+calcifer replace "oldPattern" "newPattern" -i path1 path2 -v
+
+# Replace folder names as well
+calcifer replace "oldPattern" "newPattern" -i path1 path2 --folder-names
+
+# Ignore specific folders
+calcifer replace "oldPattern" "newPattern" -i path1 path2 --ignore "pattern"
 ```
 
 ### Copy Command
 
-Copy files from source directories to target directory:
+Copy files and folders using native OS commands:
 
 ```bash
-# Copy from a single directory
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar copy <folder_path> <target_folder>
+# Basic usage
+calcifer copy destination -i path1 path2
 
-# Copy from multiple directories from a file
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar copy -f <folder_paths_list-file> <target_folder>
+# With verbose output
+calcifer copy destination -i path1 path2 -v
+
+# Using a folder list file
+calcifer copy destination -f folders.txt
 ```
+
+### Apply Command
+
+Execute a series of commands from a YAML configuration file:
+
+```yaml
+commands:
+  - type: run
+    command: "git stash -u && git switch master && git pull && mvn clean"
+    inputPaths:
+      - "."
+
+  - type: replace
+    oldPattern: "oldText"
+    newPattern: "newText"
+    inputPaths:
+      - "src/main/java"
+      - "src/main/resources"
+    replaceFolderNames: true
+    ignorePattern: "target"
+
+  - type: copy
+    destination: "dest"
+    inputPaths:
+      - "src/main/java"
+      - "src/main/resources"
+      - "pom.xml"
+```
+
+Run the configuration:
+
+```bash
+# Basic usage
+calcifer apply config.yaml
+
+# With verbose output
+calcifer apply config.yaml -v
+```
+
+## Command Options
+
+### Common Options
+
+- `-v, --verbose`: Enable verbose output
+- `-i, --input`: Input folder paths (0 or more)
+- `-f, --folder-list`: File containing list of folders
+
+### Run Command Options
+
+- `command`: The shell command to execute
+
+### Replace Command Options
+
+- `oldPattern`: Pattern to replace
+- `newPattern`: Replacement text
+- `--folder-names`: Replace folder names as well
+- `--ignore`: Pattern to ignore folders
+
+### Copy Command Options
+
+- `destination`: Destination folder path
+
+### Apply Command Options
+
+- `configFile`: Path to YAML configuration file
 
 ## Examples
 
-1. Run commands in multiple directories:
-```bash
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar run -f folders.txt "git pull" "mvn clean install"
+### Git and Maven Operations
+
+```yaml
+commands:
+  - type: run
+    command: "git stash -u && git switch master && git pull && mvn clean"
+    inputPaths:
+      - "."
 ```
 
-2. Replace text in multiple files:
-```bash
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar replace -f folders.txt "oldVersion" "newVersion"
+### Text Replacement and Copy
+
+```yaml
+commands:
+  - type: replace
+    oldPattern: "com.example"
+    newPattern: "com.newpackage"
+    inputPaths:
+      - "src/main/java"
+    replaceFolderNames: true
+
+  - type: copy
+    destination: "backup"
+    inputPaths:
+      - "src/main/java"
+      - "pom.xml"
 ```
 
-3. Copy files from multiple directories:
-```bash
-java -jar target/calcifer-tool-1.0-SNAPSHOT-jar-with-dependencies.jar copy -f folders.txt /path/to/target
-```
+## License
 
-## Notes
-
-- The folder paths list file should contain one directory path per line
-- All commands support both single directory and multiple directories (via file) input
-- The tool will create the target directory if it doesn't exist
-- For the replace command, the old pattern is treated as a regular expression 
+This project is licensed under the MIT License - see the LICENSE file for details. 
