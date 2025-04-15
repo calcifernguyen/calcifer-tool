@@ -125,7 +125,9 @@ public class CopyCommand implements Callable<Integer> {
         
         if (os.contains("win")) {
             // Windows: Use xcopy with /E for recursive copy and /I to assume destination is directory
-            processBuilder = new ProcessBuilder("xcopy", "/E", "/I", "/Y", source, destination);
+            String sourceFolderName = new File(source).getName();
+            String targetPath = destination + File.separator + sourceFolderName;
+            processBuilder = new ProcessBuilder("robocopy", "/E", "/MT", source, targetPath);
         } else {
             // Unix-like: Use cp with -r for recursive copy
             processBuilder = new ProcessBuilder("cp", "-r", source, destination);
